@@ -13,6 +13,7 @@ clearvars;
 
 
 % Deuterium: Need min 6 ppm ~ 6*50 Hz = 300 Hz. 
+% Peaks: Water @ 4.8 ppm, Glucose @ 3.8 ppm, Glu + Gln @ 2.4 ppm, Lac @ 1.4 ppm. So would need only 3.4 ppm, but peaks are broad --> Use 6 ppm.
 % Max SBW that can be achieved for 1 TI and a 32x32 matrix: ~ 542 Hz (however 550 +- 50 Hz not allowed at scanner. So use 500 Hz)
 % I calculated this like that: The gyro-ratio (1H/2H) = 26.752/4.107 ~ 6.51. So if we measure a 32x32 matrix, this corresponds to a 6.51*(32x32) ~ 210x210 matrix
 % for protons. Now I chose that in poet with 1 TI, and got max 542 Hz SBW.
@@ -21,16 +22,17 @@ clearvars;
 
 AcqTime = 1e-2;
 % AcqTime = 1e1; % Just for now to test
-AcqTimeVec = 4e-3:2e-3:2e-1;
+AcqTimeVec = 4e-3:2e-3:5e-2;
 % AcqTimeVec = 1e0;
 
 
 Omega0 = 45.755 * 10^6;     % gamma_2H / 2 / pi * 7 T = 41.07 *1e6 / 2 / pi * 7T
 T2 = 30E-3;
 Freq_ppm = [1.5 2.5];
+FreqsForAcqTimeSim_ppm = {[1.5 1.75],[1.5 2.0],[1.5 2.5]};
 AmpsGroundTruth = [1 1];
 SNR_Time_At500Hz = 5;
-MonteCarloRealizations = 1000;
+MonteCarloRealizations = 500;
 SBWVec = 200:100:10000;
 % SBWVec = 500:100:500;
 SBW = 500;
@@ -39,48 +41,58 @@ SBW = 500;
 %% Relative Error vs SBW
 
 
-% Index = 0;
-% RelativeMeanError = zeros([2 numel(SBWVec)]);
-% SNROfAmpEstimates = RelativeMeanError;
-% PlotDataSBWDep(numel(SBWVec))=struct('ppm',[],'Time',[],'FID',[],'Spec',[],'FitTot',[],'FitComp1',[],'FitComp2',[]);
-% for CurSBW = SBWVec
-%     Index = Index + 1;
-%     vecSize = round(AcqTime/(1/CurSBW));     % 10 ms / dt
-%     SNR_Time_Abs = SNR_Time_At500Hz / sqrt(CurSBW/500);
-% 
-%     [FID_GroundTruth,Time,ppm] = SimulateDeuteriumFIDs(Freq_ppm,4.65,0,0,T2,AmpsGroundTruth,0,1/CurSBW,vecSize,Omega0);
-%  
-%     [MaxAmp,NoiseStd] = CalcNoise(FID_GroundTruth,SNR_Time_Abs);
-% 
-%     [RelativeMeanError(:,Index),SNROfAmpEstimates(:,Index),PlotDataSBWDep(Index)] = MonteCarloSimFitDeuteriumFID(MonteCarloRealizations,FID_GroundTruth,NoiseStd,T2,Omega0,Freq_ppm,Time,AmpsGroundTruth,PlotDataSBWDep(Index));
-%     PlotDataSBWDep(Index).ppm = ppm;
-%     
-% end
-% figure; plot(SBWVec,RelativeMeanError(1,:))
-
-
-%% Relative Error vs AcqTime
-
 Index = 0;
-RelativeMeanError = zeros([2 numel(AcqTimeVec)]);
+RelativeMeanError = zeros([2 numel(SBWVec)]);
 SNROfAmpEstimates = RelativeMeanError;
-SNR_Time_Abs = SNR_Time_At500Hz / sqrt(SBW/500);
-PlotDataAcqTimeDep(numel(SBWVec))=struct('ppm',[],'Time',[],'FID',[],'Spec',[],'FitTot',[],'FitComp1',[],'FitComp2',[]);
-for CurAcqTime = AcqTimeVec
+PlotDataSBWDep(numel(SBWVec))=struct('ppm',[],'Time',[],'FID',[],'Spec',[],'FitTot',[],'FitComp1',[],'FitComp2',[]);
+for CurSBW = SBWVec
     Index = Index + 1;
-    vecSize = round(CurAcqTime/(1/SBW));     % 10 ms / dt
+    vecSize = round(AcqTime/(1/CurSBW));     % 10 ms / dt
+    SNR_Time_Abs = SNR_Time_At500Hz / sqrt(CurSBW/500);
 
-    [FID_GroundTruth,Time,ppm] = SimulateDeuteriumFIDs(Freq_ppm,4.65,0,0,T2,AmpsGroundTruth,0,1/SBW,vecSize,Omega0);
+    [FID_GroundTruth,Time,ppm] = SimulateDeuteriumFIDs(Freq_ppm,4.65,0,0,T2,AmpsGroundTruth,0,1/CurSBW,vecSize,Omega0);
  
     [MaxAmp,NoiseStd] = CalcNoise(FID_GroundTruth,SNR_Time_Abs);
 
-    [RelativeMeanError(:,Index),SNROfAmpEstimates(:,Index),PlotDataAcqTimeDep(Index)] = MonteCarloSimFitDeuteriumFID(MonteCarloRealizations,FID_GroundTruth,NoiseStd,T2,Omega0,Freq_ppm,Time,AmpsGroundTruth,PlotDataAcqTimeDep(Index));
+    [RelativeMeanError(:,Index),SNROfAmpEstimates(:,Index),PlotDataSBWDep(Index)] = MonteCarloSimFitDeuteriumFID(MonteCarloRealizations,FID_GroundTruth,NoiseStd,T2,Omega0,Freq_ppm,Time,AmpsGroundTruth,PlotDataSBWDep(Index));
+    PlotDataSBWDep(Index).ppm = ppm;
     
 end
-figure; plot(AcqTimeVec*1000,RelativeMeanError(1,:))
+figure; plot(SBWVec,100*RelativeMeanError(1,:))
+xlabel('SBW [Hz]'), ylabel('Relative Error [%]')
+
+% Plot Data & Fit of one realization
+PlotData(PlotDataSBWDep(4))
+
+%% Relative Error vs AcqTime
+
+RelativeMeanError = zeros([2 numel(AcqTimeVec) numel(FreqsForAcqTimeSim_ppm)]);
+SNROfAmpEstimates = RelativeMeanError;
+SNR_Time_Abs = SNR_Time_At500Hz / sqrt(SBW/500);
+PlotDataAcqTimeDep(numel(AcqTimeVec),numel(FreqsForAcqTimeSim_ppm))=struct('ppm',[],'Time',[],'FID',[],'Spec',[],'FitTot',[],'FitComp1',[],'FitComp2',[]);
 
 
+for FreqInd = 1:numel(FreqsForAcqTimeSim_ppm)
+    CurFreq_ppm = FreqsForAcqTimeSim_ppm{FreqInd};
+    Index = 0;
+    for CurAcqTime = AcqTimeVec
+        Index = Index + 1;
+        vecSize = round(CurAcqTime/(1/SBW));     % 10 ms / dt
 
+        [FID_GroundTruth,Time,ppm] = SimulateDeuteriumFIDs(CurFreq_ppm,4.65,0,0,T2,AmpsGroundTruth,0,1/SBW,vecSize,Omega0);
+
+        [MaxAmp,NoiseStd] = CalcNoise(FID_GroundTruth,SNR_Time_Abs);
+
+        [RelativeMeanError(:,Index,FreqInd),SNROfAmpEstimates(:,Index,FreqInd),PlotDataAcqTimeDep(Index,FreqInd)] = MonteCarloSimFitDeuteriumFID(MonteCarloRealizations,FID_GroundTruth,NoiseStd,T2,Omega0,CurFreq_ppm,Time,AmpsGroundTruth,PlotDataAcqTimeDep(Index,FreqInd));
+        PlotDataAcqTimeDep(Index,FreqInd).ppm = ppm;
+    end
+end
+figure; plot(AcqTimeVec*1000,squeeze(100*RelativeMeanError(1,:,:)))
+xlabel('Acquisition Duration [ms]'), ylabel('Relative Error [%]')
+legend('0.25 ppm Peak Distance','0.5 ppm Peak Distance','1.0 ppm Peak Distance')
+
+% Plot Data & Fit of one realization
+PlotData(PlotDataAcqTimeDep(end))
 
 
 
