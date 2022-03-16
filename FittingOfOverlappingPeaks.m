@@ -44,7 +44,7 @@ SBW = 500;
 Index = 0;
 RelativeMeanError = zeros([2 numel(SBWVec)]);
 SNROfAmpEstimates = RelativeMeanError;
-PlotDataSBWDep(numel(SBWVec))=struct('ppm',[],'Time',[],'FID',[],'Spec',[],'FitTot',[],'FitComp1',[],'FitComp2',[]);
+PlotDataSBWDep(numel(SBWVec))=struct('ppm',[],'Time',[],'FID',[],'Spec',[],'FitTot',[],'FitComps',[]);
 for CurSBW = SBWVec
     Index = Index + 1;
     vecSize = round(AcqTime/(1/CurSBW));     % 10 ms / dt
@@ -69,7 +69,7 @@ PlotData(PlotDataSBWDep(4))
 RelativeMeanError = zeros([2 numel(AcqTimeVec) numel(FreqsForAcqTimeSim_ppm)]);
 SNROfAmpEstimates = RelativeMeanError;
 SNR_Time_Abs = SNR_Time_At500Hz / sqrt(SBW/500);
-PlotDataAcqTimeDep(numel(AcqTimeVec),numel(FreqsForAcqTimeSim_ppm))=struct('ppm',[],'Time',[],'FID',[],'Spec',[],'FitTot',[],'FitComp1',[],'FitComp2',[]);
+PlotDataAcqTimeDep(numel(AcqTimeVec),numel(FreqsForAcqTimeSim_ppm))=struct('ppm',[],'Time',[],'FID',[],'Spec',[],'FitTot',[],'FitComps',[]);
 
 
 for FreqInd = 1:numel(FreqsForAcqTimeSim_ppm)
@@ -99,8 +99,11 @@ PlotData(PlotDataAcqTimeDep(end))
 %% Functions
 
 function [FID_GroundTruth,Time,ppm] = SimulateDeuteriumFIDs(Chemshift,DeltaFrequency,phase0,AcqDelay,T2,S_0,SNR,dwelltime,vecSize,LarmorFreq)
-    [Tmp{1},ppm] = Simulate_FID_Spectra(Chemshift(1),DeltaFrequency,phase0,AcqDelay,T2,S_0(1),SNR,dwelltime,vecSize,LarmorFreq);   % Lac  % sqrt(2): We add both spectra, so the noise adds up
-    [Tmp{2},ppm] = Simulate_FID_Spectra(Chemshift(2),DeltaFrequency,phase0,AcqDelay,T2,S_0(2),SNR,dwelltime,vecSize,LarmorFreq);   % Glx 
+
+    Tmp = cell([1 numel(Chemshift)]);
+    for ii = 1:numel(Chemshift)
+        [Tmp{ii},ppm] = Simulate_FID_Spectra(Chemshift(ii),DeltaFrequency,phase0,AcqDelay,T2,S_0(ii),SNR,dwelltime,vecSize,LarmorFreq);   % Lac  % sqrt(2): We add both spectra, so the noise adds up
+    end
 
     Time = Tmp{1}(1,:);
     ppm = ppm(1,:);
@@ -125,7 +128,9 @@ end
 
 function [RelativeMeanError,SNROfAmpEstimates,DataToPlot] = MonteCarloSimFitDeuteriumFID(MonteCarloRealizations,FID_GroundTruth,NoiseStd,T2,Omega0,Freq_ppm,Time,AmpsGroundTruth,DataToPlot)
 
-    AmpError = zeros([MonteCarloRealizations 2]);
+    AmpError = zeros([MonteCarloRealizations size(FID_GroundTruth,2)]);
+    Freq_ppm_tmp = transpose(Freq_ppm);
+    T2_tmp = repmat(T2,[size(FID_GroundTruth,2) 1]);
     for ii = 1:MonteCarloRealizations
         Noise = NoiseStd * (randn(size(FID_GroundTruth)) +  1i*randn(size(FID_GroundTruth)));
         FID = FID_GroundTruth + Noise;
@@ -134,14 +139,16 @@ function [RelativeMeanError,SNROfAmpEstimates,DataToPlot] = MonteCarloSimFitDeut
 
 
         % Fit FID with known frequencies and T2s
-        y = @(T2Value,t,Omegas,x) x(1)*exp(-t/T2Value(1)).*exp(-1i*Omegas(1)*t) + x(2)*exp(-t/T2Value(2)).*exp(-1i*Omegas(2)*t);
+        y = @(T2Value,t,Omegas,x) sum(x.*exp(-t./T2Value).*exp(-1i*Omegas.*t),1);
 
-        RealOmega = Omega0 * (1 + (Freq_ppm - 4.65)/10^6) * 2*pi;
+
+        RealOmega = Omega0 * (1 + (Freq_ppm_tmp - 4.65)/10^6) * 2*pi;
         RealOmega = RealOmega - Omega0 *2*pi;
 
-        OLS = @(x) sum(abs((y([T2,T2],Time,RealOmega,x) - FID_sum)).^2);           % Ordinary Least Squares cost function
+        OLS = @(x) sum(abs((y(T2_tmp,Time,RealOmega,x) - FID_sum)).^2);           % Ordinary Least Squares cost function
         opts = optimset('MaxFunEvals',500000, 'MaxIter',9000000);
-        A = fminsearch(OLS, [0 0], opts);       % Use ‘fminsearch’ to minimise the ‘OLS’ function
+        A = fminsearch(OLS, zeros([size(FID_GroundTruth,2) 1]), opts);       % Use ‘fminsearch’ to minimise the ‘OLS’ function
+        A = transpose(A);
 
         AmpError(ii,:) = A - AmpsGroundTruth;
 
@@ -150,11 +157,13 @@ function [RelativeMeanError,SNROfAmpEstimates,DataToPlot] = MonteCarloSimFitDeut
     DataToPlot.Time = Time;
     DataToPlot.FID = FID;
     DataToPlot.Spec = fftshift(fft(FID,[],1),1);
-    DataToPlot.FitTot = y([T2,T2],Time,RealOmega,A);                            % Calculate function with estimated parameters
+    DataToPlot.FitTot = y(repmat(T2,[size(FID_GroundTruth,2) 1]),Time,RealOmega,transpose(A));                            % Calculate function with estimated parameters
 
-    DataToPlot.FitComp1 = y([T2,T2],Time,RealOmega,[A(1) 0]);
-    DataToPlot.FitComp2 = y([T2,T2],Time,RealOmega,[0 A(2)]);
-
+    for ii = 1:size(FID_GroundTruth,2)
+        Zerr = zeros([size(FID_GroundTruth,2) 1]);
+        Zerr(ii) = A(ii);
+        DataToPlot.FitComps{ii} = y(repmat(T2,[size(FID_GroundTruth,2) 1]),Time,RealOmega,Zerr);
+    end
 
 
     % Relative Error & SNR
@@ -168,7 +177,7 @@ end
 
 
 function PlotData(DataToPlot)
-    LegendTitle = {'Lac','LacFit','Glx','GlxFit'};
+    LegendTitle = {'Data','Fit'};
     
 
     figure; 
@@ -176,11 +185,12 @@ function PlotData(DataToPlot)
     
     % Plot Individual Spectra
     subplot(2,2,1)
-    scatter(transpose(DataToPlot.ppm),real(DataToPlot.Spec(:,1)),'b','filled'), 
     hold on;
-    plot(DataToPlot.ppm,real(fftshift(fft(DataToPlot.FitComp1))),'b')
-    scatter(transpose(DataToPlot.ppm),real(DataToPlot.Spec(:,2)),'r','filled'), 
-    plot(DataToPlot.ppm,real(fftshift(fft(DataToPlot.FitComp2))),'r')
+    for ii = 1:numel(DataToPlot.FitComps)
+        Linee = plot(DataToPlot.ppm,real(fftshift(fft(DataToPlot.FitComps{ii}))));
+        colour = get(Linee,'Color');
+        scatter(transpose(DataToPlot.ppm),real(DataToPlot.Spec(:,ii)),40,colour,'filled')
+    end
     hold off;
     xlabel('Chemical Shift [ppm]'), ylabel('Signal [a.u.]')
     legend(LegendTitle)
@@ -189,12 +199,14 @@ function PlotData(DataToPlot)
     % Plot Individual FIDs
     % Scatter Points
     subplot(2,2,2) 
-    scatter(1000*DataToPlot.Time(1,:),real(DataToPlot.FID(:,1)),60,'b','filled')
     hold on
-    % Line
-    plot(1000*DataToPlot.Time(1,:),real(DataToPlot.FitComp1),'b')
-    scatter(1000*DataToPlot.Time(1,:),real(DataToPlot.FID(:,2)),60,'r','filled')
-    plot(1000*DataToPlot.Time(1,:),real(DataToPlot.FitComp2),'r')
+    
+    
+    for ii = 1:numel(DataToPlot.FitComps)
+        Linee = plot(1000*DataToPlot.Time,real(DataToPlot.FitComps{ii}));
+        colour = get(Linee,'Color');        
+        scatter(1000*DataToPlot.Time,real(DataToPlot.FID(:,ii)),60,colour,'filled')
+    end
     hold off
     % Label
     xlabel('Time [ms]'), ylabel('Signal [a.u.]')
