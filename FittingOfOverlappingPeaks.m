@@ -28,7 +28,7 @@ T2 = 30E-3;
 vecSize = round(AcqTime/(1/SBW));     % 10 ms / dt
 Freq_ppm = [1.5 2.5];
 Amps = [1 1];
-SNR = 10;
+SNR = 5;
 MonteCarloRealizations = 1000;
 
 
@@ -43,18 +43,18 @@ ppm = ppm(1,:);
 
 %% Calc Noise Std
 
-FID = [];
+FID_GroundTruth = [];
 for ii = 1:numel(Tmp)
-   FID = cat(3,FID,Tmp{ii}(2,:)); 
+   FID_GroundTruth = cat(3,FID_GroundTruth,Tmp{ii}(2,:)); 
 end
-FID = squeeze(FID);
+FID_GroundTruth = squeeze(FID_GroundTruth);
 clear Tmp
 
-Spec_GroundTruth = fftshift(fft(FID,[],1),1); 
+Spec_GroundTruth = fftshift(fft(FID_GroundTruth,[],1),1); 
 
-MaxAmp = max(real(Spec_GroundTruth(:)));
+MaxAmp = max(real(FID_GroundTruth(:)));
 NoiseStd = MaxAmp / (sqrt(2)*SNR);      % SNR = MaxAmp / (sqrt(2)*std); --> std = MaxAmp / (sqrt(2)*SNR)
-NoiseStd = NoiseStd/sqrt(size(Spec_GroundTruth,2)); % Because we add several spectral components --> Noise will add up!
+NoiseStd = NoiseStd/sqrt(size(FID_GroundTruth,2)); % Because we add several spectral components --> Noise will add up!
 
 
 
@@ -62,12 +62,12 @@ NoiseStd = NoiseStd/sqrt(size(Spec_GroundTruth,2)); % Because we add several spe
 
 AmpError = zeros([MonteCarloRealizations 2]);
 for ii = 1:MonteCarloRealizations
-    Noise = NoiseStd * (randn(size(FID)) +  1i*randn(size(FID)));
-    Spec = Spec_GroundTruth + Noise;
+    Noise = NoiseStd * (randn(size(FID_GroundTruth)) +  1i*randn(size(FID_GroundTruth)));
+    FID = FID_GroundTruth + Noise;
 
-    FID = ifft(ifftshift(Spec,1),[],1);
+%     FID = ifft(ifftshift(Spec,1),[],1);
     FID_sum = transpose(squeeze(sum(FID,2)));
-
+    Spec = fftshift(fft(FID,[],1),1);
 
     % Fit FID with known frequencies and T2s
     y = @(T2Value,t,Omegas,x) x(1)*exp(-t/T2Value(1)).*exp(-1i*Omegas(1)*t) + x(2)*exp(-t/T2Value(2)).*exp(-1i*Omegas(2)*t);
